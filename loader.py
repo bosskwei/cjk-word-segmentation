@@ -19,8 +19,9 @@ class Dictionary:
 
 
 class CorpusDense:
-    def __init__(self):
-        self.Dictionary = Dictionary()
+    def __init__(self, device):
+        self.device = device
+        self.dictionary = Dictionary()
         #
         self._train_data = self._tokenize_data(
             'data/pku_train/pku_no_space.txt')
@@ -38,14 +39,14 @@ class CorpusDense:
             for line in f:
                 words = list(line)
                 for w in words:
-                    self.Dictionary.add_word(w)
+                    self.dictionary.add_word(w)
 
         # Tokenize file content
         ids = []
         with open(path, 'r', encoding="utf8") as f:
             for line in f:
                 words = list(line)
-                words = [self.Dictionary.word2idx[w] for w in words]
+                words = [self.dictionary.word2idx[w] for w in words]
                 ids.extend(words)
         return torch.LongTensor(ids)
 
@@ -55,7 +56,7 @@ class CorpusDense:
             for line in f:
                 words = list(line)
                 for word in words:
-                    self.Dictionary.add_word(word)
+                    self.dictionary.add_word(word)
 
         # Tokenize file content
         segs = []
@@ -75,7 +76,7 @@ class CorpusDense:
         return len(self._test_data)
 
     def vocab_size(self):
-        return len(self.Dictionary)
+        return len(self.dictionary)
 
     def segment_num(self):
         return 2
@@ -91,13 +92,13 @@ class CorpusDense:
             labels.append(self._train_label[start:start + seq_length])
         batch = torch.cat(batch).view([batch_size, -1]).t().contiguous()
         labels = torch.cat(labels).view([batch_size, -1]).t().contiguous()
-        return batch, labels
+        return batch.to(self.device), labels.to(self.device)
 
     def iter_test_batch(self, seq_length):
         for start in range(0, len(self._test_data), seq_length):
             batch = self._test_data[start:start + seq_length]
             labels = self._test_label[start:start + seq_length]
-            yield batch.view([-1, 1]), labels.view([-1, 1])
+            yield batch.view([-1, 1]).to(self.device), labels.view([-1, 1]).to(self.device)
 
 
 class CJKData(Dataset):
@@ -109,7 +110,8 @@ class CJKData(Dataset):
 
 
 def test():
-    corpus = CorpusDense()
+    device = torch.device('cpu')
+    corpus = CorpusDense(device)
     corpus.train_size()
     corpus.vocab_size()
     corpus.segment_num()

@@ -11,15 +11,14 @@ import lstm
 
 
 def main():
-    corpus = loader.CorpusDense()
+    device = torch.device('cuda')
+    corpus = loader.CorpusDense(device)
     model = lstm.BiLSTMSegement(vocab_size=corpus.vocab_size(),
-                                embedding_dim=256,
-                                hidden_size=256,
+                                embedding_dim=512,
+                                hidden_size=512,
                                 num_layers=2,
-                                num_segment=corpus.segment_num())
-    critical = nn.CrossEntropyLoss()
-    # optimizer = optim.SGD(model.parameters(), lr=1e-1,
-    #                       momentum=0.9, weight_decay=1e-3)
+                                num_segment=corpus.segment_num()).to(device)
+    critical = nn.CrossEntropyLoss().to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 
     def accuracy(pred, target_labels):
@@ -34,9 +33,8 @@ def main():
     def train(seq_length, batch_size):
         model.train()
         model.zero_grad()
-        hidden = model.init_hidden(batch_size)
         data, labels = corpus.get_train_batch(seq_length, batch_size)
-        pred, _ = model(data, hidden)
+        pred, _ = model(data)
         f1_scores = accuracy(pred, labels)
         loss = critical(pred.view([-1, corpus.segment_num()]), labels.view(-1))
         loss.backward()
@@ -47,7 +45,7 @@ def main():
         with torch.no_grad():
             model.eval()
             before = time.time()
-            hidden = model.init_hidden(1)
+            hidden = model.init_hidden(1, device)
             count = 0
             f1_scores = [0.0 for _ in range(corpus.segment_num())]
             for data, labels in corpus.iter_test_batch(seq_length):
@@ -63,9 +61,9 @@ def main():
     #     model = torch.load(f)
 
     for epoch in range(0, 80):
-        for seq_length, batch_size in product([240, 120, 80, 60, 40, 20, 10], [64, 32, 16]):
+        for seq_length, batch_size in product([480, 320, 240, 80, 40, 20, 80, 160, 320], [32, 16]):
             num_batch = corpus.train_size() // (seq_length * batch_size)
-            interval = num_batch // 20
+            interval = num_batch // 10
             loss_summed, f1_summed = 0.0, [
                 0.0 for _ in range(corpus.segment_num())]
             print('--------------------')
@@ -77,7 +75,7 @@ def main():
                 f1_summed = [e + x for e, x in zip(f1_summed, f1_score)]
                 if i > 0 and i % interval == 0:
                     f1_summed = [x / interval for x in f1_summed]
-                    print('[epoch {}] batch: {}/{}, loss: {:.3f}, loss_exp: {}, f1: {}'
+                    print('[epoch {}] batch: {}/{}, loss: {:.3f}, loss_exp: {:.2f}, f1: {}'
                           .format(epoch, i, num_batch, loss_summed, math.exp(loss_summed), f1_summed))
                     loss_summed, f1_summed = 0.0, [
                         0.0 for _ in range(corpus.segment_num())]
@@ -87,7 +85,7 @@ def main():
                 print('[epoch {}] seq_length: {}, evaluate: {}, time_diff: {:.2f}'.format(
                     epoch, seq_length, f1_scores, time_diff))
         # end one epoch
-        with open('model-{}-[{:.02f}, {:.02f}].pt'
+        with open('model-{}-[{:.02f},{:.02f}].pt'
                   .format(epoch, f1_scores[0], f1_scores[1]), 'wb') as f:
             torch.save(model, f)
 

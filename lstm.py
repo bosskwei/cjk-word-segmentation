@@ -17,13 +17,13 @@ class BiLSTMSegement(nn.Module):
         self.scoring = nn.Sequential(nn.Linear(2 * self.hidden_size, num_segment),
                                      nn.Softmax(dim=2))
 
-    def init_hidden(self, batch_size):
+    def init_hidden(self, batch_size, device):
         # The axes semantics are (direct * num_layers, minibatch_size, hidden_size)
         # return axes are (hidden_state, cell_state)
-        return (torch.zeros(2 * self.num_layers, batch_size, self.hidden_size),
-                torch.zeros(2 * self.num_layers, batch_size, self.hidden_size))
+        return (torch.zeros(2 * self.num_layers, batch_size, self.hidden_size).to(device),
+                torch.zeros(2 * self.num_layers, batch_size, self.hidden_size).to(device))
 
-    def forward(self, x, hidden):
+    def forward(self, x, hidden=None):
         embedded = self.embedding(x)
         lstm_out, hidden = self.lstm(embedded, hidden)
         score = self.scoring(lstm_out)

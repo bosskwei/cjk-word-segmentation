@@ -18,8 +18,9 @@ def main():
                                 hidden_size=512,
                                 num_layers=2,
                                 num_segment=corpus.segment_num()).to(device)
-    critical = nn.CrossEntropyLoss().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+    critical = nn.CrossEntropyLoss(weight=torch.FloatTensor([1.5, 1.0])).to(device)
+    # optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-3)
+    optimizer = optim.SGD(model.parameters(), lr=1e-1, momentum=0.9, weight_decay=1e-3)
 
     def accuracy(pred, target_labels):
         assert(len(pred.shape) == 3)
@@ -30,10 +31,13 @@ def main():
                                 y_pred=pred_labels.view(-1).tolist(),
                                 labels=[x for x in range(corpus.segment_num())], average=None, zero_division=0)
 
-    def train(seq_length, batch_size):
+    def train(seq_length, batch_size, long_seq=False):
         model.train()
         model.zero_grad()
-        data, labels = corpus.get_train_batch(seq_length, batch_size)
+        if long_seq:
+            data, labels = corpus.get_train_seq(batch_size * seq_length)
+        else:
+            data, labels = corpus.get_train_batch(seq_length, batch_size)
         pred, _ = model(data)
         f1_scores = accuracy(pred, labels)
         loss = critical(pred.view([-1, corpus.segment_num()]), labels.view(-1))
@@ -57,11 +61,11 @@ def main():
             after = time.time()
         return f1_scores, after - before
 
-    # with open('model-1.pt', 'rb') as f:
-    #     model = torch.load(f)
+    with open('model-2-[0.94,0.96].pt', 'rb') as f:
+        model = torch.load(f)
 
-    for epoch in range(0, 80):
-        for seq_length, batch_size in product([480, 320, 240, 80, 40, 20, 80, 160, 320], [32, 16]):
+    for epoch in range(3, 20):
+        for seq_length, batch_size in product([320, 160, 80, 40, 20, 80, 320], [32, 16]):
             num_batch = corpus.train_size() // (seq_length * batch_size)
             interval = num_batch // 10
             loss_summed, f1_summed = 0.0, [
@@ -70,17 +74,18 @@ def main():
             print('[epoch {}] seq-batch: {}-{}, corpus {}'
                   .format(epoch, seq_length, batch_size, corpus.get_info()))
             for i in range(num_batch):
-                loss, f1_score = train(seq_length, batch_size)
+                long_seq = True if (num_batch - i) <= interval else False
+                loss, f1_score = train(seq_length, batch_size, long_seq=long_seq)
                 loss_summed += loss
                 f1_summed = [e + x for e, x in zip(f1_summed, f1_score)]
-                if i > 0 and i % interval == 0:
+                if i % interval == interval - 1:
                     f1_summed = [x / interval for x in f1_summed]
                     print('[epoch {}] batch: {}/{}, loss: {:.3f}, loss_exp: {:.2f}, f1: {}'
-                          .format(epoch, i, num_batch, loss_summed, math.exp(loss_summed), f1_summed))
+                          .format(epoch, i + 1, num_batch, loss_summed, math.exp(loss_summed), f1_summed))
                     loss_summed, f1_summed = 0.0, [
                         0.0 for _ in range(corpus.segment_num())]
             # end batch
-            for seq_length in [160, 80, 40]:
+            for seq_length in [320, 160, 80]:
                 f1_scores, time_diff = evaluate(seq_length)
                 print('[epoch {}] seq_length: {}, evaluate: {}, time_diff: {:.2f}'.format(
                     epoch, seq_length, f1_scores, time_diff))
@@ -97,4 +102,5 @@ if __name__ == "__main__":
     # 5. train_batch, train_packed
     # 6. save and load dictionary
     # 7. load multifile
+    # 8. weighted loss
     main()

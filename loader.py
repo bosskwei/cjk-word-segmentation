@@ -1,5 +1,6 @@
 import random
 import torch
+from torch.nn.utils import rnn
 from torch.utils.data import Dataset
 
 
@@ -83,22 +84,59 @@ class CorpusDense:
 
     def get_info(self):
         return 'train_size: {} test_size: {} vocab_size: {} segment_num: {}'.format(self.train_size(), self.test_size(), self.vocab_size(), self.segment_num())
+    
+    def get_train_seq(self, seq_length):
+        while True:
+            assert(len(self._train_data) == len(self._train_label))
+            start = random.randrange(len(self._train_data) - seq_length)
+            while self._train_label[start].item() != 1:
+                start += 1
+            start += 1
+            end = min(len(self._train_label) - 1, start + seq_length - 1)
+            while self._train_label[end].item() != 1:
+                end -= 1
+            if end - start < seq_length // 2:
+                continue
+            data = self._train_data[start:end + 1]
+            label = self._train_label[start:end + 1]
+            return data.view(-1, 1).to(self.device), label.view(-1, 1).to(self.device)
 
     def get_train_batch(self, seq_length, batch_size):
-        batch, labels = [], []
+        data, labels = [], []
         for _ in range(batch_size):
             start = random.randrange(len(self._train_data) - seq_length)
-            batch.append(self._train_data[start:start + seq_length])
+            data.append(self._train_data[start:start + seq_length])
             labels.append(self._train_label[start:start + seq_length])
-        batch = torch.cat(batch).view([batch_size, -1]).t().contiguous()
+        data = torch.cat(data).view([batch_size, -1]).t().contiguous()
         labels = torch.cat(labels).view([batch_size, -1]).t().contiguous()
-        return batch.to(self.device), labels.to(self.device)
+        return data.to(self.device), labels.to(self.device)
+
+    def get_train_packet(self, seq_length, batch_size):
+        data, labels = [], []
+        while True:
+            assert(len(self._train_data) == len(self._train_label))
+            start = random.randrange(len(self._train_data) - seq_length)
+            while self._train_label[start].item() != 1:
+                start += 1
+            start += 1
+            end = min(len(self._train_label), start + seq_length - 1)
+            while self._train_label[end].item() != 1:
+                end -= 1
+            if end - start < seq_length // 2:
+                continue
+            data.append(self._train_data[start:end + 1])
+            labels.append(self._train_label[start:end + 1])
+            if len(data) == batch_size:
+                break
+        data = rnn.pack_sequence(sorted(data, key=lambda item: len(item), reverse=True))
+        labels = rnn.pack_sequence(sorted(labels, key=lambda item: len(item), reverse=True))
+        return data.to(self.device), labels.to(self.device)
 
     def iter_test_batch(self, seq_length):
         for start in range(0, len(self._test_data), seq_length):
-            batch = self._test_data[start:start + seq_length]
+            data = self._test_data[start:start + seq_length]
             labels = self._test_label[start:start + seq_length]
-            yield batch.view([-1, 1]).to(self.device), labels.view([-1, 1]).to(self.device)
+            yield data.view([-1, 1]).to(self.device), labels.view([-1, 1]).to(self.device)
 
 
 class CJKData(Dataset):
@@ -116,14 +154,14 @@ def test():
     corpus.vocab_size()
     corpus.segment_num()
     for _ in range(16):
-        batch, labels = corpus.get_train_batch(seq_length=40, batch_size=16)
-        assert(batch.shape == labels.shape)
-        assert(batch.shape == torch.Size([40, 16]))
+        data, labels = corpus.get_train_batch(seq_length=40, batch_size=16)
+        assert(data.shape == labels.shape)
+        assert(data.shape == torch.Size([40, 16]))
     test_seq_length = 0
-    for batch, labels in corpus.iter_test_batch(seq_length=40):
-        assert(batch.shape == labels.shape)
-        assert(batch.shape <= torch.Size([40, 1]))
-        test_seq_length += len(batch)
+    for data, labels in corpus.iter_test_batch(seq_length=40):
+        assert(data.shape == labels.shape)
+        assert(data.shape <= torch.Size([40, 1]))
+        test_seq_length += len(data)
     assert(test_seq_length == corpus.test_size())
 
 
